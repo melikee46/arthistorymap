@@ -1,0 +1,18 @@
+# .NET build output
+bin/
+obj/
+
+# Local configuration and secrets
+appsettings.Development.json
+secrets.json
+*.user
+*.suo
+
+# IDE and OS files
+.vs/
+.idea/
+.vscode/
+.DS_Store
+
+# Logs
+*.log
