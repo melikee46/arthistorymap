@@ -16,6 +16,8 @@ namespace ArtHistoryMap.Api.Services
         public async Task<List<ArtMovementSummaryDto>> GetAllAsync()
         {
             return await _context.ArtMovements
+                .AsNoTracking()
+                .OrderBy(m => m.StartYear)
                 .Select(m => new ArtMovementSummaryDto
                 {
                     Id = m.Id,
@@ -29,41 +31,67 @@ namespace ArtHistoryMap.Api.Services
 
         public async Task<ArtMovementDetailDto?> GetByIdAsync(Guid id)
         {
-            var movement = await _context.ArtMovements
-                .Include(m => m.OutgoingRelations)
-                    .ThenInclude(r => r.TargetMovement)
-                .Include(m => m.IncomingRelations)
-                    .ThenInclude(r => r.SourceMovement)
-                .Include(m => m.ArtistMovements)
-                    .ThenInclude(am => am.Artist)
-                .FirstOrDefaultAsync(m => m.Id == id);
+            return await _context.ArtMovements
+                .AsNoTracking()
+                .AsSplitQuery()
+                .Where(m => m.Id == id)
+                .Select(m => new ArtMovementDetailDto
+                {
+                    Id = m.Id,
+                    Name = m.Name,
+                    StartYear = m.StartYear,
+                    EndYear = m.EndYear,
+                    Description = m.Description,
+                    Region = m.Region,
+                    OutgoingRelations = m.OutgoingRelations.Select(r => new RelationDto
+                    {
+                        RelatedMovementId = r.TargetMovementId,
+                        RelatedMovementName = r.TargetMovement.Name,
+                        RelationType = r.RelationType.ToString(),
+                        Description = r.Description
+                    }).ToList(),
+                    IncomingRelations = m.IncomingRelations.Select(r => new RelationDto
+                    {
+                        RelatedMovementId = r.SourceMovementId,
+                        RelatedMovementName = r.SourceMovement.Name,
+                        RelationType = r.RelationType.ToString(),
+                        Description = r.Description
+                    }).ToList(),
+                    ArtistNames = m.ArtistMovements.Select(am => am.Artist.Name).ToList()
+                })
+                .FirstOrDefaultAsync();
+        }
 
-            if (movement == null) return null;
+        public async Task<GraphDto> GetGraphAsync()
+        {
+            var nodes = await _context.ArtMovements
+                .AsNoTracking()
+                .OrderBy(m => m.StartYear)
+                .Select(m => new GraphNodeDto
+                {
+                    Id = m.Id,
+                    Name = m.Name,
+                    StartYear = m.StartYear,
+                    EndYear = m.EndYear,
+                    Region = m.Region
+                })
+                .ToListAsync();
 
-            return new ArtMovementDetailDto
+            // Ham veriyi çek, enum -> string çevirisini bellekte yap
+            var rawLinks = await _context.ArtMovementRelations
+                .AsNoTracking()
+                .Select(r => new { r.SourceMovementId, r.TargetMovementId, r.RelationType, r.Description })
+                .ToListAsync();
+
+            var links = rawLinks.Select(r => new GraphLinkDto
             {
-                Id = movement.Id,
-                Name = movement.Name,
-                StartYear = movement.StartYear,
-                EndYear = movement.EndYear,
-                Description = movement.Description,
-                Region = movement.Region,
-                OutgoingRelations = movement.OutgoingRelations.Select(r => new RelationDto
-                {
-                    RelatedMovementId = r.TargetMovementId,
-                    RelatedMovementName = r.TargetMovement.Name,
-                    RelationType = r.RelationType.ToString(),
-                    Description = r.Description
-                }).ToList(),
-                IncomingRelations = movement.IncomingRelations.Select(r => new RelationDto
-                {
-                    RelatedMovementId = r.SourceMovementId,
-                    RelatedMovementName = r.SourceMovement.Name,
-                    RelationType = r.RelationType.ToString(),
-                    Description = r.Description
-                }).ToList(),
-                ArtistNames = movement.ArtistMovements.Select(am => am.Artist.Name).ToList()
-            };
+                Source = r.SourceMovementId,
+                Target = r.TargetMovementId,
+                RelationType = r.RelationType.ToString(),
+                Description = r.Description
+            }).ToList();
+
+            return new GraphDto { Nodes = nodes, Links = links };
         }
     }
 }
